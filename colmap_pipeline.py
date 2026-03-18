@@ -86,9 +86,6 @@ def run_with_pycolmap(image_dir, workspace, dense=False, use_gpu=True, mask_dir=
 
     # Step 1: Feature extraction (tuned for synthetic/rendered images)
     log.info("Step 1/3: Extracting features...")
-    sift_options = pycolmap.SiftExtractionOptions()
-    sift_options.max_num_features = 16384  # more features for synthetic images
-    sift_options.first_octave = -1  # extract from upsampled image for finer features
     # Prepare masks: COLMAP expects mask filename = image filename + ".png"
     # e.g., for sphere_0000.png -> mask must be sphere_0000.png.png
     mask_path_str = ""
@@ -112,19 +109,23 @@ def run_with_pycolmap(image_dir, workspace, dense=False, use_gpu=True, mask_dir=
         log.info("Prepared %d masks in: %s", mask_count, prepared_mask_dir)
         mask_path_str = str(prepared_mask_dir)
 
+    reader_options = pycolmap.ImageReaderOptions()
+    reader_options.mask_path = mask_path_str if mask_path_str else ""
+
+    extraction_options = pycolmap.FeatureExtractionOptions()
+    extraction_options.max_num_features = 16384
+    extraction_options.first_octave = -1
+
     pycolmap.extract_features(
         database_path, image_dir,
-        sift_options=sift_options,
-        camera_model="SIMPLE_RADIAL",
-        single_camera=True,
-        mask_path=mask_path_str if mask_path_str else "",
+        camera_mode=pycolmap.CameraMode.SINGLE,
+        reader_options=reader_options,
+        extraction_options=extraction_options,
     )
 
-    # Step 2: Exhaustive matching (lowered ratio for synthetic images)
+    # Step 2: Exhaustive matching
     log.info("Step 2/3: Matching features (exhaustive)...")
-    match_options = pycolmap.SiftMatchingOptions()
-    match_options.max_ratio = 0.9  # more permissive matching for synthetic images
-    pycolmap.match_exhaustive(database_path, sift_options=match_options)
+    pycolmap.match_exhaustive(database_path)
 
     # Step 3: Incremental mapping (relaxed thresholds)
     log.info("Step 3/3: Running sparse reconstruction...")
