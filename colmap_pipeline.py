@@ -89,15 +89,35 @@ def run_with_pycolmap(image_dir, workspace, dense=False, use_gpu=True, mask_dir=
     sift_options = pycolmap.SiftExtractionOptions()
     sift_options.max_num_features = 16384  # more features for synthetic images
     sift_options.first_octave = -1  # extract from upsampled image for finer features
-    reader_options = pycolmap.ImageReaderOptions()
-    reader_options.single_camera = True  # all renders use same camera
+    # Prepare masks: COLMAP expects mask filename = image filename + ".png"
+    # e.g., for sphere_0000.png -> mask must be sphere_0000.png.png
+    mask_path_str = ""
     if mask_dir:
-        reader_options.camera_mask_path = str(mask_dir)
-        log.info("Using masks from: %s", mask_dir)
+        mask_dir = Path(mask_dir)
+        prepared_mask_dir = workspace / "masks_prepared"
+        prepared_mask_dir.mkdir(parents=True, exist_ok=True)
+        import shutil as _shutil
+        mask_count = 0
+        for mask_file in mask_dir.iterdir():
+            if mask_file.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}:
+                # COLMAP wants: <image_filename>.png
+                dest = prepared_mask_dir / (mask_file.name + ".png")
+                if mask_file.suffix.lower() == ".png":
+                    _shutil.copy2(mask_file, dest)
+                else:
+                    # Convert to PNG if needed
+                    from PIL import Image
+                    Image.open(mask_file).save(dest)
+                mask_count += 1
+        log.info("Prepared %d masks in: %s", mask_count, prepared_mask_dir)
+        mask_path_str = str(prepared_mask_dir)
+
     pycolmap.extract_features(
         database_path, image_dir,
         sift_options=sift_options,
-        reader_options=reader_options,
+        camera_model="SIMPLE_RADIAL",
+        single_camera=True,
+        mask_path=mask_path_str if mask_path_str else "",
     )
 
     # Step 2: Exhaustive matching (lowered ratio for synthetic images)
