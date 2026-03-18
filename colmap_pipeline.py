@@ -110,17 +110,13 @@ def run_with_pycolmap(image_dir, workspace, dense=False, use_gpu=True, mask_dir=
         mask_path_str = str(prepared_mask_dir)
 
     reader_options = pycolmap.ImageReaderOptions()
-    reader_options.mask_path = mask_path_str if mask_path_str else ""
-
-    extraction_options = pycolmap.FeatureExtractionOptions()
-    extraction_options.max_num_features = 16384
-    extraction_options.first_octave = -1
+    if mask_path_str:
+        reader_options.mask_path = mask_path_str
 
     pycolmap.extract_features(
         database_path, image_dir,
         camera_mode=pycolmap.CameraMode.SINGLE,
         reader_options=reader_options,
-        extraction_options=extraction_options,
     )
 
     # Step 2: Exhaustive matching
