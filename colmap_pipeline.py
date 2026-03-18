@@ -67,7 +67,7 @@ def check_gpu_available():
 
 # ─── Backend: pycolmap ────────────────────────────────────────────
 
-def run_with_pycolmap(image_dir, workspace, dense=False, use_gpu=True):
+def run_with_pycolmap(image_dir, workspace, dense=False, use_gpu=True, mask_dir=None):
     """Run pipeline using pycolmap Python bindings."""
     try:
         import pycolmap
@@ -79,23 +79,55 @@ def run_with_pycolmap(image_dir, workspace, dense=False, use_gpu=True):
     sparse_dir = workspace / "sparse"
     sparse_dir.mkdir(parents=True, exist_ok=True)
 
-    # Step 1: Feature extraction
+    # Remove old database if re-running
+    if database_path.exists():
+        database_path.unlink()
+        log.info("Removed old database for fresh run.")
+
+    # Step 1: Feature extraction (tuned for synthetic/rendered images)
     log.info("Step 1/3: Extracting features...")
-    pycolmap.extract_features(database_path, image_dir)
+    sift_options = pycolmap.SiftExtractionOptions()
+    sift_options.max_num_features = 16384  # more features for synthetic images
+    sift_options.first_octave = -1  # extract from upsampled image for finer features
+    reader_options = pycolmap.ImageReaderOptions()
+    reader_options.single_camera = True  # all renders use same camera
+    if mask_dir:
+        reader_options.camera_mask_path = str(mask_dir)
+        log.info("Using masks from: %s", mask_dir)
+    pycolmap.extract_features(
+        database_path, image_dir,
+        sift_options=sift_options,
+        reader_options=reader_options,
+    )
 
-    # Step 2: Exhaustive matching
+    # Step 2: Exhaustive matching (lowered ratio for synthetic images)
     log.info("Step 2/3: Matching features (exhaustive)...")
-    pycolmap.match_exhaustive(database_path)
+    match_options = pycolmap.SiftMatchingOptions()
+    match_options.max_ratio = 0.9  # more permissive matching for synthetic images
+    pycolmap.match_exhaustive(database_path, sift_options=match_options)
 
-    # Step 3: Incremental mapping (sparse reconstruction)
+    # Step 3: Incremental mapping (relaxed thresholds)
     log.info("Step 3/3: Running sparse reconstruction...")
-    maps = pycolmap.incremental_mapping(database_path, image_dir, sparse_dir)
+    mapper_options = pycolmap.IncrementalPipelineOptions()
+    mapper_options.min_num_matches = 10  # lower threshold for synthetic images
+    mapper_options.ba_refine_focal_length = True  # let COLMAP estimate focal length
+    mapper_options.ba_refine_principal_point = True  # let COLMAP estimate principal point
+    maps = pycolmap.incremental_mapping(
+        database_path, image_dir, sparse_dir,
+        options=mapper_options,
+    )
     if not maps:
         log.error("Reconstruction failed — no models produced. Check image overlap.")
         sys.exit(1)
 
-    maps[0].write(sparse_dir)
-    log.info("Sparse reconstruction complete: %s", maps[0].summary())
+    # Pick the largest model (most registered images)
+    best_idx = max(maps, key=lambda k: maps[k].num_reg_images())
+    best_model = maps[best_idx]
+    log.info(
+        "Found %d sub-models. Using model %d with %d registered images and %d points.",
+        len(maps), best_idx, best_model.num_reg_images(), best_model.num_points3D(),
+    )
+    best_model.write(sparse_dir)
 
     # Export sparse PLY
     sparse_ply = sparse_dir / "sparse.ply"
@@ -305,6 +337,10 @@ def main():
         help="Disable GPU acceleration (slower but works without CUDA)",
     )
     parser.add_argument(
+        "--mask_dir", type=Path, default=None,
+        help="Path to folder containing mask images (same filenames as images, white=keep, black=ignore)",
+    )
+    parser.add_argument(
         "--visualize", action="store_true",
         help="Open point cloud viewer after reconstruction",
     )
@@ -350,7 +386,8 @@ def main():
     # Run pipeline
     if args.backend == "pycolmap":
         sparse_dir, mvs_dir = run_with_pycolmap(
-            args.image_dir, args.workspace, args.dense, use_gpu
+            args.image_dir, args.workspace, args.dense, use_gpu,
+            args.mask_dir,
         )
     elif args.backend == "cli":
         sparse_dir, mvs_dir = run_with_cli(
