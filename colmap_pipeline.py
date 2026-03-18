@@ -135,16 +135,12 @@ def run_with_cli(image_dir, workspace, dense=False, use_gpu=True):
     sparse_dir = workspace / "sparse"
     sparse_dir.mkdir(parents=True, exist_ok=True)
 
-    gpu_flag = "1" if use_gpu else "0"
-
     # Step 1: Feature extraction
     log.info("Step 1/3: Extracting features...")
     run_colmap_cmd([
         "feature_extractor",
         "--database_path", str(database_path),
         "--image_path", str(image_dir),
-        "--ImageReader.single_camera", "1",
-        "--SiftExtraction.use_gpu", gpu_flag,
     ])
 
     # Step 2: Exhaustive matching
@@ -152,7 +148,6 @@ def run_with_cli(image_dir, workspace, dense=False, use_gpu=True):
     run_colmap_cmd([
         "exhaustive_matcher",
         "--database_path", str(database_path),
-        "--SiftMatching.use_gpu", gpu_flag,
     ])
 
     # Step 3: Sparse reconstruction
@@ -228,9 +223,6 @@ def run_automatic(image_dir, workspace, dense=False, use_gpu=True):
         "automatic_reconstructor",
         "--image_path", str(image_dir),
         "--workspace_path", str(workspace),
-        "--quality", "high",
-        "--data_type", "individual",
-        "--use_gpu", "1" if use_gpu else "0",
     ]
     if dense:
         args += ["--dense", "1"]
