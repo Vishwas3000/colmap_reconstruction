@@ -123,15 +123,10 @@ def run_with_pycolmap(image_dir, workspace, dense=False, use_gpu=True, mask_dir=
     log.info("Step 2/3: Matching features (exhaustive)...")
     pycolmap.match_exhaustive(database_path)
 
-    # Step 3: Incremental mapping (relaxed thresholds)
+    # Step 3: Incremental mapping
     log.info("Step 3/3: Running sparse reconstruction...")
-    mapper_options = pycolmap.IncrementalPipelineOptions()
-    mapper_options.min_num_matches = 10  # lower threshold for synthetic images
-    mapper_options.ba_refine_focal_length = True  # let COLMAP estimate focal length
-    mapper_options.ba_refine_principal_point = True  # let COLMAP estimate principal point
     maps = pycolmap.incremental_mapping(
         database_path, image_dir, sparse_dir,
-        options=mapper_options,
     )
     if not maps:
         log.error("Reconstruction failed — no models produced. Check image overlap.")
