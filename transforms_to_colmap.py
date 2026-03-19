@@ -202,47 +202,31 @@ def main():
     write_points3d_bin(sparse_dir / "points3D.bin")
     log.info("Sparse model written to: %s", sparse_dir)
 
-    # Export sparse PLY (will be empty since no 3D points yet)
-    sparse_ply = args.workspace / "sparse" / "sparse.ply"
-    try:
-        run_colmap_cmd([
-            "model_converter",
-            "--input_path", str(sparse_dir),
-            "--output_path", str(sparse_ply),
-            "--output_type", "PLY",
-        ])
-        log.info("Sparse PLY saved to: %s", sparse_ply)
-    except RuntimeError:
-        log.warning("Could not export sparse PLY (no 3D points yet, this is normal)")
+    log.info("Sparse model has no 3D points (camera poses only). Dense reconstruction will generate the point cloud.")
 
     if args.dense:
+        import pycolmap
+
         # Step 1: Undistort images
         mvs_dir = args.workspace / "mvs"
         log.info("Undistorting images...")
-        run_colmap_cmd([
-            "image_undistorter",
-            "--image_path", str(args.image_dir),
-            "--input_path", str(sparse_dir),
-            "--output_path", str(mvs_dir),
-            "--output_type", "COLMAP",
-        ])
+        pycolmap.undistort_images(
+            output_path=mvs_dir,
+            input_path=sparse_dir,
+            image_path=args.image_dir,
+        )
 
         # Step 2: PatchMatch stereo
         log.info("Running PatchMatch stereo (this may take a while)...")
-        run_colmap_cmd([
-            "patch_match_stereo",
-            "--workspace_path", str(mvs_dir),
-            "--PatchMatchStereo.geom_consistency", "true",
-        ])
+        pycolmap.patch_match_stereo(workspace_path=mvs_dir)
 
         # Step 3: Stereo fusion
         dense_ply = mvs_dir / "fused.ply"
         log.info("Fusing into dense point cloud...")
-        run_colmap_cmd([
-            "stereo_fusion",
-            "--workspace_path", str(mvs_dir),
-            "--output_path", str(dense_ply),
-        ])
+        pycolmap.stereo_fusion(
+            output_path=dense_ply,
+            workspace_path=mvs_dir,
+        )
         log.info("Dense point cloud saved to: %s", dense_ply)
 
     log.info("Done!")
